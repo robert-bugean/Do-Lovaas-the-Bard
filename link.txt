@@ -1,1 +1,3 @@
 https://discord.com/oauth2/authorize?client_id=1270510796924784774&permissions=1126589286303808&integration_type=0&scope=bot
+
+1126589286303808

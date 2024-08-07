@@ -31,6 +31,8 @@ def run_bot():
         print(f'{client.user} is running')
 
 
+    # base functions
+
     @client.command(name="play", aliases=["p"])
     async def play(ctx, *, link):
         try:
@@ -93,6 +95,8 @@ def run_bot():
             print(e)
 
 
+    # queue functions
+
     async def play_next(ctx):
         if queues[ctx.guild.id] != []:
             link = queues[ctx.guild.id].pop(0)
@@ -106,7 +110,16 @@ def run_bot():
         queues[ctx.guild.id].append(url)
         await ctx.send("Added to queue!")
 
-    
+
+    @client.command(name="clear_queue", aliases=["clear", "c"])
+    async def clear_queue(ctx):
+        if ctx.guild.id in queues:
+            queues[ctx.guild.id].clear()
+            await ctx.send("Queue cleared!")
+        else:
+            await ctx.send("There is no queue to clear")
+
+
     @client.command(name="skip", aliases=["s"])
     async def skip(ctx):
         try:
@@ -114,14 +127,6 @@ def run_bot():
             await play_next(ctx)
         except Exception as e:
             print(e)
-            
 
-    # @client.command(name="clear_queue")
-    # async def clear_queue(ctx):
-    #     if ctx.guild.id in queues:
-    #         queues[ctx.guild.id].clear()
-    #         await ctx.send("Queue cleared!")
-    #     else:
-    #         await ctx.send("There is no queue to clear")
 
     client.run(TOKEN)
