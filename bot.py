@@ -14,9 +14,6 @@ def run_bot():
     intents.message_content = True
     client = commands.Bot(command_prefix=".", intents=intents)
 
-    queues = {}
-    voice_channels = {}
-
     youtube_base_url = 'https://www.youtube.com/'
     youtube_results_url = youtube_base_url + 'results?'
     youtube_watch_url = youtube_base_url + 'watch?v='
@@ -25,6 +22,9 @@ def run_bot():
 
     ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options': '-vn -filter:a "volume=0.25"'}
 
+    queues = {}
+    voice_channels = {}
+    
 
     @client.event
     async def on_ready():
@@ -43,26 +43,21 @@ def run_bot():
         try:
             # treat the user input as a search query, if it's not a youtube link
             if youtube_base_url not in link:
-                query_string = urllib.parse.urlencode({
-                    'search_query': link
-                })
-
-                content = urllib.request.urlopen(
-                    youtube_results_url + query_string
-                )
-
+                query_string = urllib.parse.urlencode({'search_query': link})
+                content = urllib.request.urlopen(youtube_results_url + query_string)
                 search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
                 link = youtube_watch_url + search_results[0]
 
             # extract the audio
             loop = asyncio.get_event_loop()
             data = await loop.run_in_executor(None, lambda: ytdl.extract_info(link, download=False))
-
-            audio = data['url']
-            player = discord.FFmpegOpusAudio(audio, **ffmpeg_options)
+            player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
 
             # play all the songs in queue
-            voice_channels[ctx.guild.id].play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), client.loop))
+            voice_channels[ctx.guild.id].play(player,
+                after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), client.loop)
+            )
+            
             await show_embed(ctx, data, link)
         except Exception as e:
             print(e)
@@ -88,6 +83,7 @@ def run_bot():
     async def stop(ctx):
         try:
             voice_channels[ctx.guild.id].stop()
+            
             await voice_channels[ctx.guild.id].disconnect()
             del voice_channels[ctx.guild.id]
         except Exception as e:
@@ -146,6 +142,18 @@ def run_bot():
         async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await pause(self.ctx)
+                await interaction.response.defer()
+
+        @discord.ui.button(label='Stop', style=discord.ButtonStyle.danger)
+        async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await stop(self.ctx)
+                await interaction.response.defer()
+
+        @discord.ui.button(label='Skip', style=discord.ButtonStyle.secondary)
+        async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await skip(self.ctx)
                 await interaction.response.defer()
 
 
