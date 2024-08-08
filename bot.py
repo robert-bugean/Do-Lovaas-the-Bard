@@ -56,15 +56,16 @@ def run_bot():
                     link = youtube_watch_url + search_results[0]
 
                 # queue the song
-                queue.append(link)
+                if link not in queue:
+                    queue.append(link)
 
                 if not ctx.voice_client.is_playing():
                     # extract the audio
                     loop = asyncio.get_event_loop()
-                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(link, download=False))
+                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(queue[0], download=False))
                     player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
 
-                    # play the song
+                    # play the first song in queue
                     ctx.voice_client.play(player,
                         after=lambda e: client.loop.create_task(play_next(ctx))
                     )
@@ -78,12 +79,12 @@ def run_bot():
 
     async def play_next(ctx):
         if queue:
-            if loop:
+            if not loop:
+                queue.pop(0)
+            
+            if queue:
                 link = queue[0]
-            else:
-                link = queue.pop(0)
-                
-            await play(ctx, link=link)
+                await play(ctx, link=link)
 
 
     @client.command(name="pause")
@@ -109,8 +110,6 @@ def run_bot():
     async def skip(ctx):
         try:
             ctx.voice_client.stop()
-
-            queue.pop(0)
             await play_next(ctx)
         except Exception as e:
             print(e)
