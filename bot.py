@@ -1,4 +1,5 @@
 import asyncio
+import typing
 import discord
 import os
 import urllib.parse, urllib.request, re
@@ -14,8 +15,7 @@ def run_bot():
     intents.message_content = True
     client = commands.Bot(command_prefix=".", intents=intents)
 
-    queues = {}
-    voice_channels = {}
+    queue = []
 
     youtube_base_url = 'https://www.youtube.com/'
     youtube_results_url = youtube_base_url + 'results?'
@@ -25,73 +25,68 @@ def run_bot():
 
     ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options': '-vn -filter:a "volume=0.25"'}
 
-    # global loop, current_song
-    # loop = False
-    # current_song = None
     
-
     @client.event
     async def on_ready():
         print(f'{client.user} is running')
 
 
-    async def play_next(ctx):
-        if queues[ctx.guild.id] != []:
-            link = queues[ctx.guild.id].pop(0)
-            await play(ctx, link=link)
-
-
     @client.command(name="play", aliases=["p"])
     async def play(ctx, *, link):
-        # global current_song
-        # current_song = link
-        
+        # connect to the voice channel
         voice_channel = ctx.author.voice.channel if ctx.author.voice else None
 
         if not voice_channel:
             return await ctx.send("You are not in a voice channel!")
 
         if not ctx.voice_client:
-            voice_client = await voice_channel.connect()
-            voice_channels[voice_channel.guild.id] = voice_client
+            await voice_channel.connect()
 
         try:
-            # treat the user input as a search query, if it's not a youtube link
-            if youtube_base_url not in link:
-                query_string = urllib.parse.urlencode({'search_query': link})
-                content = urllib.request.urlopen(youtube_results_url + query_string)
-                search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
-                link = youtube_watch_url + search_results[0]
+            async with ctx.typing():
+                # treat the user input as a search query if it's not a YouTube link
+                if youtube_base_url not in link:
+                    query_string = urllib.parse.urlencode({'search_query': link})
+                    content = urllib.request.urlopen(youtube_results_url + query_string)
+                    search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
+                    link = youtube_watch_url + search_results[0]
 
+                # queue the song
+                queue.append(link)
 
-            # if voice_client.isPlaying():
+                if not ctx.voice_client.is_playing():
+                    link = queue.pop(0)
+
+                    # extract the audio
+                    loop = asyncio.get_event_loop()
+                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(link, download=False))
+                    player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
+
+                    # play the song
+                    ctx.voice_client.play(player,
+                        after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), client.loop)
+                    )
+                else:
+                    await ctx.send("Added to queue!")
                 
-
-            # if queues[ctx.guild.id] == []:
-            #     queues[ctx.guild.id].append(link)
-
-            # link = link = queues[ctx.guild.id].pop(0)
-
-
-            # extract the audio
-            loop = asyncio.get_event_loop()
-            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(link, download=False))
-            player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
-
-            # play all the songs in queue
-            voice_channels[ctx.guild.id].play(player,
-                after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), client.loop)
-            )
-            
             await show_embed(ctx, data, link)
         except Exception as e:
             print(e)
 
 
+    async def play_next(ctx):
+        if queue:
+            link = queue.pop(0)
+            await play(ctx, link=link)
+
+
     @client.command(name="pause")
     async def pause(ctx):
         try:
-            voice_channels[ctx.guild.id].pause()
+            if ctx.voice_client.is_playing():
+                ctx.voice_client.pause()
+            else:
+                await ctx.send("Nothing to pause!")
         except Exception as e:
             print(e)
 
@@ -99,65 +94,49 @@ def run_bot():
     @client.command(name="resume")
     async def resume(ctx):
         try:
-            voice_channels[ctx.guild.id].resume()
+            ctx.voice_client.resume()
         except Exception as e:
             print(e)
 
 
-    @client.command(name="stop")
-    async def stop(ctx):
-        try:
-            voice_channels[ctx.guild.id].stop()
-            
-            await voice_channels[ctx.guild.id].disconnect()
-            del voice_channels[ctx.guild.id]
-        except Exception as e:
-            print(e)
-
-    
     @client.command(name="skip")
     async def skip(ctx):
         try:
-            voice_channels[ctx.guild.id].stop()
+            ctx.voice_client.stop()
             await play_next(ctx)
         except Exception as e:
             print(e)
 
 
-    @client.command(name="loop")
-    async def toggle_loop(ctx):
-        global loop
-        loop = not loop
-
-        await ctx.send(f"Loop: {loop}")
-
-
-    @client.command(name="queue", aliases=["q"])
-    async def queue(ctx, *, url):
-        if ctx.guild.id not in queues:
-            queues[ctx.guild.id] = []
-        
-        queues[ctx.guild.id].append(url)
-        await ctx.send("Added to queue!")
-
-
-    @client.command(name="clear", aliases=["c"])
-    async def clear_queue(ctx):
-        if ctx.guild.id in queues:
-            queues[ctx.guild.id].clear()
-            await ctx.send("Queue cleared!")
-        else:
-            await ctx.send("There is no queue to clear")
+    @client.command(name="stop", aliases=["s"])
+    async def stop(ctx):
+        try:
+            await ctx.voice_client.disconnect()
+        except Exception as e:
+            print(e)
 
 
     async def show_embed(ctx, data, link):
-        embed = discord.Embed(title="Now Playing", description=f"[{data['title']}]({link})", color=0x5865f2)
+        with open("icon.png", "rb") as icon_file:
+            icon = discord.File(icon_file, filename="icon.png")
+
+        embed = discord.Embed(
+            description=f"[{data['title']}]({link})",
+            color=discord.Color.red()
+        )
+        
         embed.add_field(name="Duration", value=str(data['duration']) + " seconds")
         embed.add_field(name="Author", value=data.get('uploader', 'Unknown'))
         embed.set_thumbnail(url=data['thumbnail'])
+    
+        embed.set_author(
+            name="Now Playing",
+            icon_url="attachment://icon.png"
+        )
 
         view = EmbedButtons(ctx)
-        await ctx.send(embed=embed, view=view)
+
+        await ctx.send(embed=embed, view=view, file=icon)
 
 
     class EmbedButtons(discord.ui.View):
@@ -171,7 +150,7 @@ def run_bot():
                 await interaction.response.defer()
                 await pause(self.ctx)
 
-        @discord.ui.button(label='Stop', style=discord.ButtonStyle.blurple)
+        @discord.ui.button(label='Stop', style=discord.ButtonStyle.danger)
         async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
@@ -183,11 +162,11 @@ def run_bot():
                 await interaction.response.defer()
                 await skip(self.ctx)
 
-        @discord.ui.button(label='Loop', style=discord.ButtonStyle.secondary)
-        async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-                await toggle_loop(self.ctx)
+        # @discord.ui.button(label='Loop', style=discord.ButtonStyle.secondary)
+        # async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        #     if interaction.user == self.ctx.author:
+        #         await interaction.response.defer()
+        #         await toggle_loop(self.ctx)
 
 
     client.run(TOKEN)
