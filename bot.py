@@ -25,9 +25,9 @@ def run_bot():
 
     ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options': '-vn -filter:a "volume=0.25"'}
 
-    global loop, current_song
-    loop = False
-    current_song = None
+    # global loop, current_song
+    # loop = False
+    # current_song = None
     
 
     @client.event
@@ -36,25 +36,24 @@ def run_bot():
 
 
     async def play_next(ctx):
-        if loop and current_song:
-            await play(ctx, link=current_song)
-        else:
-            if queues[ctx.guild.id] != []:
-                link = queues[ctx.guild.id].pop(0)
-                await play(ctx, link=link)
+        if queues[ctx.guild.id] != []:
+            link = queues[ctx.guild.id].pop(0)
+            await play(ctx, link=link)
 
 
     @client.command(name="play", aliases=["p"])
     async def play(ctx, *, link):
-        global current_song
-        current_song = link
+        # global current_song
+        # current_song = link
         
-        try:
-            # connect to the voice channel
-            voice_channel = await ctx.author.voice.channel.connect()
-            voice_channels[voice_channel.guild.id] = voice_channel
-        except Exception as e:
-            print(e)
+        voice_channel = ctx.author.voice.channel if ctx.author.voice else None
+
+        if not voice_channel:
+            return await ctx.send("You are not in a voice channel!")
+
+        if not ctx.voice_client:
+            voice_client = await voice_channel.connect()
+            voice_channels[voice_channel.guild.id] = voice_client
 
         try:
             # treat the user input as a search query, if it's not a youtube link
@@ -63,6 +62,13 @@ def run_bot():
                 content = urllib.request.urlopen(youtube_results_url + query_string)
                 search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
                 link = youtube_watch_url + search_results[0]
+
+
+            # if queues[ctx.guild.id] == []:
+            #     queues[ctx.guild.id].append(link)
+
+            # link = link = queues[ctx.guild.id].pop(0)
+
 
             # extract the audio
             loop = asyncio.get_event_loop()
