@@ -31,6 +31,12 @@ def run_bot():
         print(f'{client.user} is running')
 
 
+    async def play_next(ctx):
+        if queues[ctx.guild.id] != []:
+            link = queues[ctx.guild.id].pop(0)
+            await play(ctx, link=link)
+
+
     @client.command(name="play", aliases=["p"])
     async def play(ctx, *, link):
         try:
@@ -79,7 +85,7 @@ def run_bot():
             print(e)
 
 
-    @client.command(name="stop", aliases=["s"])
+    @client.command(name="stop")
     async def stop(ctx):
         try:
             voice_channels[ctx.guild.id].stop()
@@ -89,25 +95,7 @@ def run_bot():
         except Exception as e:
             print(e)
 
-
-    @client.command(name="queue")
-    async def queue(ctx, *, url):
-        if ctx.guild.id not in queues:
-            queues[ctx.guild.id] = []
-        
-        queues[ctx.guild.id].append(url)
-        await ctx.send("Added to queue!")
-
-
-    @client.command(name="clear_queue")
-    async def clear_queue(ctx):
-        if ctx.guild.id in queues:
-            queues[ctx.guild.id].clear()
-            await ctx.send("Queue cleared!")
-        else:
-            await ctx.send("There is no queue to clear")
-
-
+    
     @client.command(name="skip")
     async def skip(ctx):
         try:
@@ -117,14 +105,26 @@ def run_bot():
             print(e)
 
 
-    async def play_next(ctx):
-        if queues[ctx.guild.id] != []:
-            link = queues[ctx.guild.id].pop(0)
-            await play(ctx, link=link)
+    @client.command(name="queue", aliases=["q"])
+    async def queue(ctx, *, url):
+        if ctx.guild.id not in queues:
+            queues[ctx.guild.id] = []
+        
+        queues[ctx.guild.id].append(url)
+        await ctx.send("Added to queue!")
+
+
+    @client.command(name="clear", aliases=["c"])
+    async def clear_queue(ctx):
+        if ctx.guild.id in queues:
+            queues[ctx.guild.id].clear()
+            await ctx.send("Queue cleared!")
+        else:
+            await ctx.send("There is no queue to clear")
 
 
     async def show_embed(ctx, data, link):
-        embed = discord.Embed(title="Now Playing", description=f"[{data['title']}]({link})", color=discord.Color.blue())
+        embed = discord.Embed(title="Now Playing", description=f"[{data['title']}]({link})", color=0x5865f2)
         embed.add_field(name="Duration", value=str(data['duration']) + " seconds")
         embed.add_field(name="Author", value=data.get('uploader', 'Unknown'))
         embed.set_thumbnail(url=data['thumbnail'])
@@ -141,20 +141,20 @@ def run_bot():
         @discord.ui.button(label='Pause', style=discord.ButtonStyle.secondary)
         async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
-                await pause(self.ctx)
                 await interaction.response.defer()
+                await pause(self.ctx)
 
-        @discord.ui.button(label='Stop', style=discord.ButtonStyle.danger)
+        @discord.ui.button(label='Stop', style=discord.ButtonStyle.blurple)
         async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
-                await stop(self.ctx)
                 await interaction.response.defer()
+                await stop(self.ctx)
 
         @discord.ui.button(label='Skip', style=discord.ButtonStyle.secondary)
         async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
-                await skip(self.ctx)
                 await interaction.response.defer()
+                await skip(self.ctx)
 
 
     client.run(TOKEN)
