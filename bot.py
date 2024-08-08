@@ -14,6 +14,9 @@ def run_bot():
     intents.message_content = True
     client = commands.Bot(command_prefix=".", intents=intents)
 
+    queues = {}
+    voice_channels = {}
+
     youtube_base_url = 'https://www.youtube.com/'
     youtube_results_url = youtube_base_url + 'results?'
     youtube_watch_url = youtube_base_url + 'watch?v='
@@ -22,8 +25,9 @@ def run_bot():
 
     ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options': '-vn -filter:a "volume=0.25"'}
 
-    queues = {}
-    voice_channels = {}
+    global loop, current_song
+    loop = False
+    current_song = None
     
 
     @client.event
@@ -32,13 +36,19 @@ def run_bot():
 
 
     async def play_next(ctx):
-        if queues[ctx.guild.id] != []:
-            link = queues[ctx.guild.id].pop(0)
-            await play(ctx, link=link)
+        if loop and current_song:
+            await play(ctx, link=current_song)
+        else:
+            if queues[ctx.guild.id] != []:
+                link = queues[ctx.guild.id].pop(0)
+                await play(ctx, link=link)
 
 
     @client.command(name="play", aliases=["p"])
     async def play(ctx, *, link):
+        global current_song
+        current_song = link
+        
         try:
             # connect to the voice channel
             voice_channel = await ctx.author.voice.channel.connect()
@@ -105,6 +115,14 @@ def run_bot():
             print(e)
 
 
+    @client.command(name="loop")
+    async def toggle_loop(ctx):
+        global loop
+        loop = not loop
+
+        await ctx.send(f"Loop: {loop}")
+
+
     @client.command(name="queue", aliases=["q"])
     async def queue(ctx, *, url):
         if ctx.guild.id not in queues:
@@ -155,6 +173,12 @@ def run_bot():
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
                 await skip(self.ctx)
+
+        @discord.ui.button(label='Loop', style=discord.ButtonStyle.secondary)
+        async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
+                await toggle_loop(self.ctx)
 
 
     client.run(TOKEN)
