@@ -49,6 +49,10 @@ def run_bot():
                     query_string = urllib.parse.urlencode({'search_query': link})
                     content = urllib.request.urlopen(youtube_results_url + query_string)
                     search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
+                    
+                    if not search_results:
+                        return await ctx.send("No results found for the search query!")
+                    
                     link = youtube_watch_url + search_results[0]
 
                 # queue the song
@@ -121,7 +125,7 @@ def run_bot():
             icon = discord.File(icon_file, filename="icon.png")
 
         embed = discord.Embed(
-            description=f"[{data['title']}]({link})",
+            title=f"{data['title']}\n{link}",
             color=discord.Color.red()
         )
         
@@ -130,7 +134,7 @@ def run_bot():
         embed.set_thumbnail(url=data['thumbnail'])
     
         embed.set_author(
-            name="Now Playing",
+            name="Now playing...",
             icon_url="attachment://icon.png"
         )
 
