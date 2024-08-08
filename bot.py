@@ -64,6 +64,9 @@ def run_bot():
                 link = youtube_watch_url + search_results[0]
 
 
+            # if voice_client.isPlaying():
+                
+
             # if queues[ctx.guild.id] == []:
             #     queues[ctx.guild.id].append(link)
 
