@@ -57,18 +57,18 @@ def run_bot():
                     link = youtube_watch_url + search_results[0]
 
                 # add the song to the queue
-                queue.append(link)
+                if link not in queue:
+                    queue.append(link)
 
                 if not ctx.voice_client.is_playing():
                     # extract the audio
-                    loop = asyncio.get_event_loop()
-                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(queue[cursor], download=False))
+                    event_loop = asyncio.get_event_loop()
+                    data = await event_loop.run_in_executor(None, lambda: ytdl.extract_info(queue[cursor], download=False))
                     player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
 
                     # play the song
                     ctx.voice_client.play(player)
 
-                    # show the embed box
                     await show_embed(ctx, data, link)
                 else:
                     await ctx.send("Added to queue!")
@@ -79,7 +79,11 @@ def run_bot():
     @client.command(name="previous")
     async def previous(ctx):
         global cursor
-        cursor -= 1
+        
+        if (cursor - 1) >= 0:
+            cursor -= 1
+        else:
+            return
 
         try:
             ctx.voice_client.stop()
@@ -91,7 +95,11 @@ def run_bot():
     @client.command(name="next")
     async def next(ctx):
         global cursor
-        cursor += 1
+        
+        if (cursor + 1) < len(queue):
+            cursor += 1
+        else:
+            return
         
         try:
             ctx.voice_client.stop()
@@ -134,6 +142,7 @@ def run_bot():
         except Exception as e:
             print(e)
 
+
     async def show_embed(ctx, data, link):
         with open("icon.png", "rb") as icon_file:
             icon = discord.File(icon_file, filename="icon.png")
@@ -152,9 +161,7 @@ def run_bot():
             icon_url="attachment://icon.png"
         )
 
-        view = EmbedButtons(ctx)
-        
-        await ctx.send(embed=embed, view=view, file=icon)
+        await ctx.send(embed=embed, view=EmbedButtons(ctx), file=icon)
 
 
     class EmbedButtons(discord.ui.View):
