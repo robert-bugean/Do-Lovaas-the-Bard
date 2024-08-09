@@ -16,8 +16,9 @@ def run_bot():
 
     queue = []
 
-    global cursor
+    global cursor, loop
     cursor = 0
+    loop = True
         
     youtube_base_url = 'https://www.youtube.com/'
     youtube_results_url = youtube_base_url + 'results?'
@@ -67,13 +68,22 @@ def run_bot():
                     player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
 
                     # play the song
-                    ctx.voice_client.play(player)
-
+                    ctx.voice_client.play(player,
+                        after=lambda e: asyncio.run_coroutine_threadsafe(loop_current(ctx), client.loop)
+                    )
+                    
                     await show_embed(ctx, data, link)
                 else:
                     await ctx.send("Added to queue!")
         except Exception as e:
             print(e)
+
+
+    async def loop_current(ctx):
+        if loop:
+            await play(ctx, link=queue[cursor])
+        else:
+            ctx.voice_client.stop()
 
 
     @client.command(name="previous")
@@ -143,6 +153,12 @@ def run_bot():
             print(e)
 
 
+    @client.command(name="loop")
+    async def loop_toggle(ctx):
+        global loop
+        loop = not loop
+
+
     async def show_embed(ctx, data, link):
         with open("icon.png", "rb") as icon_file:
             icon = discord.File(icon_file, filename="icon.png")
@@ -193,6 +209,17 @@ def run_bot():
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
                 await next(self.ctx)
+
+        @discord.ui.button(label='Loop', style=discord.ButtonStyle.success)
+        async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            global loop
+            
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
+                await loop_toggle(self.ctx)
+
+                button.style = discord.ButtonStyle.success if loop else discord.ButtonStyle.secondary
+                await interaction.edit_original_response(view=self)
 
 
     client.run(TOKEN)
