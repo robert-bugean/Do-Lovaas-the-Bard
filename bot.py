@@ -1,5 +1,4 @@
 import asyncio
-import typing
 import discord
 import os
 import urllib.parse, urllib.request, re
@@ -16,7 +15,7 @@ def run_bot():
     client = commands.Bot(command_prefix=".", intents=intents)
 
     queue = []
-
+    
     youtube_base_url = 'https://www.youtube.com/'
     youtube_results_url = youtube_base_url + 'results?'
     youtube_watch_url = youtube_base_url + 'watch?v='
@@ -55,14 +54,14 @@ def run_bot():
                                      
                     link = youtube_watch_url + search_results[0]
 
-                # queue the song
+                # queue the song, if not queued alredy
                 if link not in queue:
                     queue.append(link)
 
                 if not ctx.voice_client.is_playing():
                     # extract the audio
-                    loop = asyncio.get_event_loop()
-                    data = await loop.run_in_executor(None, lambda: ytdl.extract_info(queue[0], download=False))
+                    event_loop = asyncio.get_event_loop()
+                    data = await event_loop.run_in_executor(None, lambda: ytdl.extract_info(link, download=False))
                     player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
 
                     # play the first song in queue
@@ -71,7 +70,9 @@ def run_bot():
                     )
                 else:
                     await ctx.send("Added to queue!")
-                
+                    
+            # await ctx.send(f"{queue}")
+            
             await show_embed(ctx, data, link)
         except Exception as e:
             print(e)
@@ -83,8 +84,7 @@ def run_bot():
                 queue.pop(0)
             
             if queue:
-                link = queue[0]
-                await play(ctx, link=link)
+                await play(ctx, link=queue[0])
 
 
     @client.command(name="pause")
@@ -119,6 +119,7 @@ def run_bot():
     async def stop(ctx):
         try:
             await ctx.voice_client.disconnect()
+            queue.clear()
         except Exception as e:
             print(e)
 
