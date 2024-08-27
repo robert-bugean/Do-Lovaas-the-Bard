@@ -13,13 +13,7 @@ def run_bot():
     intents = discord.Intents.default()
     intents.message_content = True
     client = commands.Bot(command_prefix=".", intents=intents)
-
-    queue = []
-
-    global cursor, loop
-    cursor = 0
-    loop = False
-        
+    
     youtube_base_url = 'https://www.youtube.com/'
     youtube_results_url = youtube_base_url + 'results?'
     youtube_watch_url = youtube_base_url + 'watch?v='
@@ -28,17 +22,48 @@ def run_bot():
 
     ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options': '-vn -filter:a "volume=0.25"'}
 
-        
+    global queue, cursor, loop
+    queue = []
+    cursor = 0
+    loop = False
+
+
+    # Definisci una lista di URL base
+    youtube_url_formats = [
+        "https://www.youtube.com/",
+        "https://youtu.be/"
+    ]
+
+    youtube_watch_url = 'https://www.youtube.com/watch?v='  # URL completo per i video
+
+
     @client.event
     async def on_ready():
         print(f'{client.user} is running')
 
 
+    def normalize_youtube_url(link):
+        """
+        Funzione per normalizzare il formato del link di YouTube.
+        Restituisce l'URL nel formato standard https://www.youtube.com/watch?v=VIDEO_ID
+        """
+        for base_url in youtube_url_formats:
+            if base_url in link:
+                if base_url == "https://youtu.be/":
+                    # Estrai l'ID del video dal link abbreviato
+                    video_id = link.split("youtu.be/")[-1]
+                    return youtube_watch_url + video_id
+                elif base_url == "https://www.youtube.com/":
+                    # Restituisci direttamente il link completo (già in formato corretto)
+                    return link
+        
+        return None  # Se nessuno dei formati è valido
+
     @client.command(name="play", aliases=["p"])
     async def play(ctx, *, link):
-        global cursor
+        global cursor, queue
         
-        # connect to the voice channel
+        # Connect to the voice channel
         voice_channel = ctx.author.voice.channel if ctx.author.voice else None
 
         if not voice_channel:
@@ -52,30 +77,33 @@ def run_bot():
 
         try:
             async with ctx.typing():
-                # treat the user input as a search query if it's not a youtube link
-                if youtube_base_url not in link:
+                # Normalizza il link (se è un URL di YouTube conosciuto)
+                normalized_link = normalize_youtube_url(link)
+                
+                # Se il link non è stato normalizzato, consideralo una ricerca
+                if not normalized_link:
                     query_string = urllib.parse.urlencode({'search_query': link})
                     content = urllib.request.urlopen(youtube_results_url + query_string)
                     search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
-                                     
-                    link = youtube_watch_url + search_results[0]
+                                    
+                    normalized_link = youtube_watch_url + search_results[0]
 
-                # add the song to the queue
-                if link not in queue:
-                    queue.append(link)
+                # Aggiungi la canzone alla coda
+                if normalized_link not in queue:
+                    queue.append(normalized_link)
 
+                # Se il bot non sta riproducendo, inizia a suonare la prima canzone della coda
                 if not ctx.voice_client.is_playing():
-                    # extract the audio
                     event_loop = asyncio.get_event_loop()
                     data = await event_loop.run_in_executor(None, lambda: ytdl.extract_info(queue[cursor], download=False))
                     player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
 
-                    # play the song
+                    # Riproduce la canzone
                     ctx.voice_client.play(player,
                         after=lambda e: asyncio.run_coroutine_threadsafe(loop_current(ctx), client.loop)
                     )
                     
-                    await show_embed(ctx, data, link)
+                    await show_embed(ctx, data, normalized_link)
                 else:
                     await ctx.send("Added to queue!")
         except Exception as e:
