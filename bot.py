@@ -18,7 +18,7 @@ def run_bot():
 
     global cursor, loop
     cursor = 0
-    loop = True
+    loop = False
         
     youtube_base_url = 'https://www.youtube.com/'
     youtube_results_url = youtube_base_url + 'results?'
@@ -46,6 +46,9 @@ def run_bot():
 
         if not ctx.voice_client:
             await voice_channel.connect()
+            
+            queue = []
+            cursor = 0
 
         try:
             async with ctx.typing():
@@ -142,13 +145,8 @@ def run_bot():
 
     @client.command(name="stop")
     async def stop(ctx):
-        global cursor
-        
         try:
             await ctx.voice_client.disconnect()
-            
-            queue = []
-            cursor = 0
         except Exception as e:
             print(e)
 
@@ -210,7 +208,7 @@ def run_bot():
                 await interaction.response.defer()
                 await next(self.ctx)
 
-        @discord.ui.button(label='Loop', style=discord.ButtonStyle.success)
+        @discord.ui.button(label='Loop', style=discord.ButtonStyle.secondary)
         async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             global loop
             
