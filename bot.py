@@ -14,27 +14,24 @@ def run_bot():
     intents.message_content = True
     client = commands.Bot(command_prefix=".", intents=intents)
     
-    youtube_base_url = 'https://www.youtube.com/'
-    youtube_results_url = youtube_base_url + 'results?'
-    youtube_watch_url = youtube_base_url + 'watch?v='
     yt_dl_options = {"format": "bestaudio/best"}
     ytdl = yt_dlp.YoutubeDL(yt_dl_options)
 
-    ffmpeg_options = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5','options': '-vn -filter:a "volume=0.25"'}
+    ffmpeg_options = {
+        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+        'options': '-vn -filter:a "volume=0.25"'
+    }
+
+    youtube_results_url = 'https://www.youtube.com/results?'
+    youtube_url_formats = [
+        "https://www.youtube.com/watch?v=",
+        "https://youtu.be/"
+    ]
 
     global queue, cursor, loop
     queue = []
     cursor = 0
     loop = False
-
-
-    # Definisci una lista di URL base
-    youtube_url_formats = [
-        "https://www.youtube.com/",
-        "https://youtu.be/"
-    ]
-
-    youtube_watch_url = 'https://www.youtube.com/watch?v='  # URL completo per i video
 
 
     @client.event
@@ -43,27 +40,23 @@ def run_bot():
 
 
     def normalize_youtube_url(link):
-        """
-        Funzione per normalizzare il formato del link di YouTube.
-        Restituisce l'URL nel formato standard https://www.youtube.com/watch?v=VIDEO_ID
-        """
-        for base_url in youtube_url_formats:
-            if base_url in link:
-                if base_url == "https://youtu.be/":
-                    # Estrai l'ID del video dal link abbreviato
-                    video_id = link.split("youtu.be/")[-1]
-                    return youtube_watch_url + video_id
-                elif base_url == "https://www.youtube.com/":
-                    # Restituisci direttamente il link completo (già in formato corretto)
-                    return link
+        if link.startswith("https://www.youtube.com/watch?v="):
+            return link
         
-        return None  # Se nessuno dei formati è valido
+        # returns the URL in the standard format https://www.youtube.com/watch?v=VIDEO_ID
+        if link.startswith("https://youtu.be/"):
+            video_id = link.split("youtu.be/")[-1]
+            return youtube_url_formats[0] + video_id
+        
+        # returns none if none of the formats are valid
+        return None
+
 
     @client.command(name="play", aliases=["p"])
     async def play(ctx, *, link):
         global cursor, queue
         
-        # Connect to the voice channel
+        # connect to the voice channel
         voice_channel = ctx.author.voice.channel if ctx.author.voice else None
 
         if not voice_channel:
@@ -77,28 +70,28 @@ def run_bot():
 
         try:
             async with ctx.typing():
-                # Normalizza il link (se è un URL di YouTube conosciuto)
+                # normalize the link
                 normalized_link = normalize_youtube_url(link)
                 
-                # Se il link non è stato normalizzato, consideralo una ricerca
+                # if the link was not normalized, consider it a search query
                 if not normalized_link:
                     query_string = urllib.parse.urlencode({'search_query': link})
                     content = urllib.request.urlopen(youtube_results_url + query_string)
                     search_results = re.findall(r'/watch\?v=(.{11})', content.read().decode())
                                     
-                    normalized_link = youtube_watch_url + search_results[0]
+                    normalized_link = youtube_url_formats[0] + search_results[0]
 
-                # Aggiungi la canzone alla coda
+                # add the song to the queue
                 if normalized_link not in queue:
                     queue.append(normalized_link)
 
-                # Se il bot non sta riproducendo, inizia a suonare la prima canzone della coda
+                # if the bot is not playing, start playing the first song in the queue
                 if not ctx.voice_client.is_playing():
                     event_loop = asyncio.get_event_loop()
                     data = await event_loop.run_in_executor(None, lambda: ytdl.extract_info(queue[cursor], download=False))
                     player = discord.FFmpegOpusAudio(data['url'], **ffmpeg_options)
 
-                    # Riproduce la canzone
+                    # play the song
                     ctx.voice_client.play(player,
                         after=lambda e: asyncio.run_coroutine_threadsafe(loop_current(ctx), client.loop)
                     )
@@ -210,7 +203,6 @@ def run_bot():
         def __init__(self, ctx):
             super().__init__(timeout=None)
             self.ctx = ctx
-
 
         @discord.ui.button(label='Prev.', style=discord.ButtonStyle.secondary)
         async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
