@@ -96,6 +96,7 @@ def run_bot():
                         after=lambda e: asyncio.run_coroutine_threadsafe(loop_current(ctx), client.loop)
                     )
                     
+                    # show the player buttons
                     await show_embed(ctx, data, normalized_link)
                 else:
                     await ctx.send("Added to queue!")
