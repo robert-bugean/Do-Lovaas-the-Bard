@@ -1,24 +1,29 @@
 import os
+import pandas
 import discord
 from discord.ext import commands
 
+# —————————————————————————————————————— #
 
 TOKEN = os.getenv('discord_token')
-AUDIO_PATH = f"{os.getcwd()}\\Songbook\\"
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 client = commands.Bot(command_prefix=".", intents=intents)
 
-loop = False
-current_song = None
+songbook_csv = f"{os.getcwd()}\\Settings\\Songbook.csv"
+songbook = pandas.read_csv(songbook_csv, delimiter=';') 
 
+current_audio = None
+loop = True
+
+# —————————————————————————————————————— #
 
 def run_bot():
     @client.event
     async def on_ready():
-        print(f"Bot {client.user} is running.")
+        print(f"{client.user} is running.")
 
     # JOIN
     @client.command(name="join", aliases=["j"])
@@ -29,40 +34,46 @@ def run_bot():
 
     # PLAY
     @client.command(name="play", aliases=["p"])
-    async def play(ctx, file_name: str):
-        global current_song
+    async def play(ctx, message: str):
+        global current_audio
         vc = ctx.voice_client
+        file_path = "";
         
         if not vc:
             await ctx.send("Hey! I'm not there yet!")
         else:
-            file_path = f"{AUDIO_PATH}\\{file_name}"
+            # read songbook
+            for index, row in songbook.iterrows():
+                theme = row.iloc[0];
+                path = row.iloc[1];
 
+                if message.lower() == theme.lower():
+                    file_path = path;
+
+            # play audio
             if os.path.exists(file_path):
-                current_song = file_path
+                current_audio = file_path
                 vc.stop()
-                play_audio(vc, file_path, ctx)
+                play_audio(ctx, vc, file_path)
                 await show_controls(ctx)
             else:
-                await ctx.send("Sorry, I don't have that in my songbook.")
+                await ctx.send("Sorry, I can't find that in my songbook.")
 
-    def play_audio(vc, file_path, ctx):
+    def play_audio(ctx, vc, file_path):
         vc.play(
             discord.FFmpegPCMAudio(file_path),
-            after=lambda e: check_loop(vc, ctx)
+            after=lambda e: check_loop(ctx, vc)
         )
 
-    def check_loop(vc, ctx):
+    def check_loop(ctx, vc):
         if loop:
-            play_audio(vc, current_song, ctx)
+            play_audio(ctx, vc, current_audio)
 
     # PAUSE
     @client.command(name="pause")
     async def pause(ctx):
         if ctx.voice_client.is_playing():
             ctx.voice_client.pause()
-        else:
-            await ctx.send("I'm not playing anything.")
 
     # RESUME 
     @client.command(name="resume")
@@ -70,9 +81,9 @@ def run_bot():
         if not ctx.voice_client.is_playing():
             ctx.voice_client.resume()
 
-    # STOP
-    @client.command(name="stop", aliases=["s"])
-    async def stop(ctx):
+    # DISCONNECT
+    @client.command(name="disconnect", aliases=["d"])
+    async def disconnect(ctx):
         await ctx.voice_client.disconnect()
 
     # LOOP
@@ -80,8 +91,6 @@ def run_bot():
     async def toggle_loop(ctx):
         global loop
         loop = not loop
-
-        await ctx.send(f"Loop: {loop}.")
 
 
     async def show_controls(ctx):
@@ -113,33 +122,46 @@ def run_bot():
         async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
-                print("Prev.")
                 # await previous(self.ctx)
 
         @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary)
         async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
-                await pause(self.ctx)
+
+                if button.label == "Pause":
+                    await pause(self.ctx)
+                    button.label = "Resume"
+                else:
+                    await resume(self.ctx)
+                    button.label = "Pause"
+
+                await interaction.edit_original_response(view=self)
 
         @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger)
         async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
-                await stop(self.ctx)
+                await disconnect(self.ctx)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
         async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
-                print("Next")
                 # await next(self.ctx)
 
-        @discord.ui.button(label="Loop", style=discord.ButtonStyle.secondary)
+        @discord.ui.button(label="Loop", style=discord.ButtonStyle.success)
         async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
                 await toggle_loop(self.ctx)
+
+                if loop:
+                    button.style = discord.ButtonStyle.success
+                else:
+                    button.style = discord.ButtonStyle.secondary
+
+                await interaction.edit_original_response(view=self)
 
 
     client.run(TOKEN)
