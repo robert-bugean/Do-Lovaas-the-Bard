@@ -13,12 +13,11 @@ intents.message_content = True
 
 client = commands.Bot(command_prefix=".", intents=intents)
 
-
-song_folder = f"{os.getcwd()}\\Songs\\"
+attachments_folder = f"{os.getcwd()}\\Attachments\\"
+songs_folder = f"{os.getcwd()}\\Songs\\"
 
 songbook_csv = f"{os.getcwd()}\\Songbook.csv"
 songbook = pandas.read_csv(songbook_csv, delimiter=';') 
-
 
 current_audio = None
 loop = True
@@ -102,37 +101,68 @@ def run_bot():
         song_title = current_audio.split("\\")[-1].split("(")[0].strip()
         song_author = "D&D Breakfast Club"
         song_duration = get_duration(current_audio)
-        # song_thumbnail =
 
-        with open("icon.png", "rb") as icon_file:
+        icon_path = f"{attachments_folder}\\icon.png"
+        thumbnail_path = get_thumbnail(current_audio)
+
+        # embed attachments
+        files = []
+
+        with open(icon_path, "rb") as icon_file:
             icon = discord.File(icon_file, filename="icon.png")
+            files.append(icon)
 
+        if thumbnail_path:
+            with open(thumbnail_path, "rb") as thumbnail_file:
+                thumbnail = discord.File(thumbnail_file, filename="cover.jpg")
+                files.append(thumbnail)
+
+        # embed structure
         embed = discord.Embed(
             title=song_title,
             color=discord.Color.red()
         )
-        
-        embed.add_field(name="Author", value=song_author)
-        embed.add_field(name="Duration", value=song_duration)
 
         embed.set_author(
             name="Now playing...",
             icon_url="attachment://icon.png"
         )
+        
+        embed.add_field(name="Author", value=song_author)
+        embed.add_field(name="Duration", value=song_duration)
+        embed.set_thumbnail(url="attachment://cover.jpg")
+        
+        await ctx.send(embed=embed, view=Buttons(ctx), files=files)
 
-        await ctx.send(embed=embed, view=Buttons(ctx), file=icon)
 
     def get_duration(file_path):
-        try:
-            probe = ffmpeg.probe(file_path)
-            duration = float(probe['format']['duration'])
-            minutes = int(duration // 60)
-            seconds = int(duration % 60)
+        probe = ffmpeg.probe(file_path)
+        duration = float(probe['format']['duration'])
+        minutes = int(duration // 60)
+        seconds = int(duration % 60)
 
-            return f"{minutes}m {seconds:02d}s"
-        except Exception as e:
-            return "Unknown"
+        return f"{minutes}m {seconds:02d}s"
 
+    def get_thumbnail(file_path):
+        output_image = f"{attachments_folder}\\cover.jpg"
+
+        # check the file's metadata for a video stream
+        probe = ffmpeg.probe(file_path)
+        video_streams = [stream for stream in probe['streams'] if stream['codec_type'] == 'video']
+
+        if video_streams:
+            (
+                ffmpeg
+                .input(file_path, ss=10)            # skip to 10 seconds
+                .output(output_image, vframes=1)    # extract one frame only
+                .run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
+            )
+
+            # return the path of the extracted image
+            return output_image  
+        else:
+            return None
+    
     class Buttons(discord.ui.View):
         def __init__(self, ctx):
             super().__init__(timeout=None)
