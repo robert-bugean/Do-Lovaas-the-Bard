@@ -1,4 +1,5 @@
 import os
+import ffmpeg
 import pandas
 import discord
 from discord.ext import commands
@@ -12,8 +13,12 @@ intents.message_content = True
 
 client = commands.Bot(command_prefix=".", intents=intents)
 
-songbook_csv = f"{os.getcwd()}\\Settings\\Songbook.csv"
+
+song_folder = f"{os.getcwd()}\\Songs\\"
+
+songbook_csv = f"{os.getcwd()}\\Songbook.csv"
 songbook = pandas.read_csv(songbook_csv, delimiter=';') 
+
 
 current_audio = None
 loop = True
@@ -34,7 +39,7 @@ def run_bot():
 
     # PLAY
     @client.command(name="play", aliases=["p"])
-    async def play(ctx, message: str):
+    async def play(ctx, user_input: str):
         global current_audio
         vc = ctx.voice_client
         file_path = "";
@@ -47,7 +52,7 @@ def run_bot():
                 theme = row.iloc[0];
                 path = row.iloc[1];
 
-                if message.lower() == theme.lower():
+                if user_input.lower() == theme.lower():
                     file_path = path;
 
             # play audio
@@ -92,18 +97,23 @@ def run_bot():
         global loop
         loop = not loop
 
-
+    # CONTROLS
     async def show_controls(ctx):
+        song_title = current_audio.split("\\")[-1].split("(")[0].strip()
+        song_author = "D&D Breakfast Club"
+        song_duration = get_duration(current_audio)
+        # song_thumbnail =
+
         with open("icon.png", "rb") as icon_file:
             icon = discord.File(icon_file, filename="icon.png")
 
         embed = discord.Embed(
-            title="TITLE",
+            title=song_title,
             color=discord.Color.red()
         )
         
-        embed.add_field(name="Duration", value="0 seconds")
-        embed.add_field(name="Author", value="AUTHOR")
+        embed.add_field(name="Author", value=song_author)
+        embed.add_field(name="Duration", value=song_duration)
 
         embed.set_author(
             name="Now playing...",
@@ -112,6 +122,16 @@ def run_bot():
 
         await ctx.send(embed=embed, view=Buttons(ctx), file=icon)
 
+    def get_duration(file_path):
+        try:
+            probe = ffmpeg.probe(file_path)
+            duration = float(probe['format']['duration'])
+            minutes = int(duration // 60)
+            seconds = int(duration % 60)
+
+            return f"{minutes}m {seconds:02d}s"
+        except Exception as e:
+            return "Unknown"
 
     class Buttons(discord.ui.View):
         def __init__(self, ctx):
