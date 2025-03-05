@@ -36,6 +36,8 @@ def run_bot():
             channel = ctx.author.voice.channel
             await channel.connect()
 
+            await show_songbook(ctx)
+
     # PLAY
     @client.command(name="play", aliases=["p"])
     async def play(ctx, user_input: str):
@@ -48,22 +50,24 @@ def run_bot():
         else:
             # read songbook
             for index, row in songbook.iterrows():
-                theme = row.iloc[0];
-                path = row.iloc[1];
+                group = row.iloc[0];
+                theme = row.iloc[1];
+                file = row.iloc[2];
 
                 if user_input.lower() == theme.lower():
-                    file_path = path;
+                    file_path = file;
 
             # play audio
             if os.path.exists(file_path):
                 current_audio = file_path
-                vc.stop()
+                
                 play_audio(ctx, vc, file_path)
-                await show_controls(ctx)
+                await show_player(ctx)
             else:
                 await ctx.send("Sorry, I can't find that in my songbook.")
 
     def play_audio(ctx, vc, file_path):
+        vc.stop()
         vc.play(
             discord.FFmpegPCMAudio(file_path),
             after=lambda e: check_loop(ctx, vc)
@@ -96,9 +100,10 @@ def run_bot():
         global loop
         loop = not loop
 
-    # CONTROLS
-    async def show_controls(ctx):
+    # PLAYER VIEW
+    async def show_player(ctx):
         song_title = current_audio.split("\\")[-1].split("(")[0].strip()
+        song_category = current_audio.split("\\")[-2]
         song_author = "D&D Breakfast Club"
         song_duration = get_duration(current_audio)
 
@@ -120,6 +125,7 @@ def run_bot():
         # embed structure
         embed = discord.Embed(
             title=song_title,
+            description=song_category,
             color=discord.Color.red()
         )
 
@@ -127,13 +133,58 @@ def run_bot():
             name="Now playing...",
             icon_url="attachment://icon.png"
         )
-        
-        embed.add_field(name="Author", value=song_author)
-        embed.add_field(name="Duration", value=song_duration)
         embed.set_thumbnail(url="attachment://cover.jpg")
-        
-        await ctx.send(embed=embed, view=Buttons(ctx), files=files)
 
+        embed.add_field(name=" ", value=" ", inline=False)
+        embed.add_field(name="Author", value=song_author, inline=True)
+        embed.add_field(name=" ", value=" ", inline=True)
+        embed.add_field(name="Duration", value=song_duration, inline=True)
+        
+        view=PlayerView(ctx)
+
+        await ctx.send(embed=embed, view=view, files=files)
+
+    class PlayerView(discord.ui.View):
+        def __init__(self, ctx):
+            super().__init__(timeout=None)
+            self.ctx = ctx
+
+        @discord.ui.button(label="Prev.", style=discord.ButtonStyle.secondary)
+        async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
+
+        @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary)
+        async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
+
+                if button.label == "Pause":
+                    await pause(self.ctx)
+                    button.label = "Resume"
+                else:
+                    await resume(self.ctx)
+                    button.label = "Pause"
+
+                await interaction.edit_original_response(view=self)
+
+        @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
+        async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
+
+        @discord.ui.button(label="Loop", style=discord.ButtonStyle.success)
+        async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
+                await toggle_loop(self.ctx)
+
+                if loop:
+                    button.style = discord.ButtonStyle.success
+                else:
+                    button.style = discord.ButtonStyle.secondary
+
+                await interaction.edit_original_response(view=self)
 
     def get_duration(file_path):
         probe = ffmpeg.probe(file_path)
@@ -153,7 +204,7 @@ def run_bot():
         if video_streams:
             (
                 ffmpeg
-                .input(file_path, ss=10)            # skip to 10 seconds
+                .input(file_path, ss=1)             # skip to 1 second
                 .output(output_image, vframes=1)    # extract one frame only
                 .run(overwrite_output=True, capture_stdout=True, capture_stderr=True)
             )
@@ -162,8 +213,50 @@ def run_bot():
             return output_image  
         else:
             return None
-    
-    class Buttons(discord.ui.View):
+
+    # SONGBOOK VIEW
+    @client.command(name="songbook", aliases=['b'])
+    async def show_songbook(ctx):
+        embed = discord.Embed(
+            title="Do'Lovaas' songbook",
+            description="This ancient book is filled with enchanted melodies\nand forgotten secrets, offering every bard the perfect\nsong for any adventure.",
+            color=discord.Color.red()
+        )
+
+        view = SongbookClosedView(ctx)
+
+        await ctx.send(embed=embed, view=view)
+
+    class SongbookClosedView(discord.ui.View):
+        def __init__(self, ctx):
+            super().__init__(timeout=None)
+            self.ctx = ctx
+
+        @discord.ui.button(label="Open", style=discord.ButtonStyle.secondary)
+        async def open(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                embed = discord.Embed(
+                    title="Do'Lovaas' songbook",
+                    color=discord.Color.red()
+                )
+
+                # read songbook
+                for index, row in songbook.iterrows():
+                    group = row.iloc[0];
+                    theme = row.iloc[1];
+                    file = row.iloc[2];
+
+                    song_title = file.split("\\")[-1].split("(")[0].strip()
+
+                    embed.add_field(name=theme, value=song_title, inline=False)
+
+                embed.set_footer(text="Page 1/1")
+
+                view=SongbookOpenedView(ctx=self.ctx)
+                
+                await interaction.response.edit_message(embed=embed, view=view)
+
+    class SongbookOpenedView(discord.ui.View):
         def __init__(self, ctx):
             super().__init__(timeout=None)
             self.ctx = ctx
@@ -172,46 +265,11 @@ def run_bot():
         async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
-                # await previous(self.ctx)
-
-        @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary)
-        async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-
-                if button.label == "Pause":
-                    await pause(self.ctx)
-                    button.label = "Resume"
-                else:
-                    await resume(self.ctx)
-                    button.label = "Pause"
-
-                await interaction.edit_original_response(view=self)
-
-        @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger)
-        async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-                await disconnect(self.ctx)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
         async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
-                # await next(self.ctx)
-
-        @discord.ui.button(label="Loop", style=discord.ButtonStyle.success)
-        async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-                await toggle_loop(self.ctx)
-
-                if loop:
-                    button.style = discord.ButtonStyle.success
-                else:
-                    button.style = discord.ButtonStyle.secondary
-
-                await interaction.edit_original_response(view=self)
 
 
     client.run(TOKEN)
