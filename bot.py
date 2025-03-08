@@ -17,7 +17,11 @@ attachments_folder = f"{os.getcwd()}\\Attachments\\"
 songs_folder = f"{os.getcwd()}\\Songs\\"
 
 songbook_csv = f"{os.getcwd()}\\Songbook.csv"
-songbook = pandas.read_csv(songbook_csv, delimiter=';') 
+songbook_data = pandas.read_csv(songbook_csv, delimiter=';')
+songbook = None
+
+groups = []
+current_page = 0
 
 current_audio = None
 loop = True
@@ -32,28 +36,30 @@ def run_bot():
     # JOIN
     @client.command(name="join", aliases=["j"])
     async def join(ctx):
+        global songbook
+
+        # read songbook
+        songbook = [row.tolist() for _, row in songbook_data.iterrows()]
+        
         if ctx.author.voice:
             channel = ctx.author.voice.channel
             await channel.connect()
 
-            await show_songbook(ctx)
+        await show_songbook(ctx)
 
     # PLAY
     @client.command(name="play", aliases=["p"])
     async def play(ctx, user_input: str):
         global current_audio
+
         vc = ctx.voice_client
         file_path = "";
         
         if not vc:
             await ctx.send("Hey! I'm not there yet!")
         else:
-            # read songbook
-            for index, row in songbook.iterrows():
-                group = row.iloc[0];
-                theme = row.iloc[1];
-                file = row.iloc[2];
-
+            # find song to play
+            for group, theme, file in songbook:
                 if user_input.lower() == theme.lower():
                     file_path = file;
 
@@ -64,7 +70,7 @@ def run_bot():
                 play_audio(ctx, vc, file_path)
                 await show_player(ctx)
             else:
-                await ctx.send("Sorry, I can't find that in my songbook.")
+                await ctx.send("Sorry, I can't find that in my songbook_data.")
 
     def play_audio(ctx, vc, file_path):
         vc.stop()
@@ -98,6 +104,7 @@ def run_bot():
     @client.command(name="loop", aliases=["l"])
     async def toggle_loop(ctx):
         global loop
+
         loop = not loop
 
     # PLAYER VIEW
@@ -110,7 +117,7 @@ def run_bot():
         icon_path = f"{attachments_folder}\\icon.png"
         thumbnail_path = get_thumbnail(current_audio)
 
-        # embed attachments
+        # player attachments
         files = []
 
         with open(icon_path, "rb") as icon_file:
@@ -122,17 +129,18 @@ def run_bot():
                 thumbnail = discord.File(thumbnail_file, filename="cover.jpg")
                 files.append(thumbnail)
 
-        # embed structure
+        # player structure
         embed = discord.Embed(
-            title=song_title,
-            description=song_category,
-            color=discord.Color.red()
+            title = song_title,
+            description = f"*{song_category}*",
+            color = discord.Color.red()
         )
 
         embed.set_author(
-            name="Now playing...",
-            icon_url="attachment://icon.png"
+            name = "Now playing...",
+            icon_url = "attachment://icon.png"
         )
+
         embed.set_thumbnail(url="attachment://cover.jpg")
 
         embed.add_field(name=" ", value=" ", inline=False)
@@ -215,12 +223,14 @@ def run_bot():
             return None
 
     # SONGBOOK VIEW
-    @client.command(name="songbook", aliases=['b'])
+    @client.command(name="songbook", aliases=["s", "b"])
     async def show_songbook(ctx):
+        
+
         embed = discord.Embed(
-            title="Do'Lovaas' songbook",
-            description="This ancient book is filled with enchanted melodies\nand forgotten secrets, offering every bard the perfect\nsong for any adventure.",
-            color=discord.Color.red()
+            title = "Do'Lovaas' songbook",
+            description = "This ancient book is filled with enchanted\nmelodies and forgotten secrets, offering every\nbard the perfectsong for any adventure.",
+            color = discord.Color.red()
         )
 
         view = SongbookClosedView(ctx)
@@ -235,24 +245,14 @@ def run_bot():
         @discord.ui.button(label="Open", style=discord.ButtonStyle.secondary)
         async def open(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
-                embed = discord.Embed(
-                    title="Do'Lovaas' songbook",
-                    color=discord.Color.red()
-                )
+                global groups
 
-                # read songbook
-                for index, row in songbook.iterrows():
-                    group = row.iloc[0];
-                    theme = row.iloc[1];
-                    file = row.iloc[2];
+                for group, theme, file in songbook:
+                    if group not in groups:
+                        groups.append(group)
 
-                    song_title = file.split("\\")[-1].split("(")[0].strip()
-
-                    embed.add_field(name=theme, value=song_title, inline=False)
-
-                embed.set_footer(text="Page 1/1")
-
-                view=SongbookOpenedView(ctx=self.ctx)
+                embed = create_songbook_embed(1)
+                view = SongbookOpenedView(ctx=self.ctx)
                 
                 await interaction.response.edit_message(embed=embed, view=view)
 
@@ -264,12 +264,45 @@ def run_bot():
         @discord.ui.button(label="Prev.", style=discord.ButtonStyle.secondary)
         async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
-                await interaction.response.defer()
+                embed = create_songbook_embed(current_page - 1)
+                view = SongbookOpenedView(ctx=self.ctx)
+
+                await interaction.response.edit_message(embed=embed, view=view)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
         async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
-                await interaction.response.defer()
+                embed = create_songbook_embed(current_page + 1)
+                view = SongbookOpenedView(ctx=self.ctx)
+                
+                await interaction.response.edit_message(embed=embed, view=view)
+
+    def create_songbook_embed(page):
+        global current_page
+
+        group_filter = groups[page - 1]
+        current_page = page
+        total_pages = len(groups)
+
+        filtered_songbook = [row for row in songbook if row[0] == group_filter]
+                
+        embed = discord.Embed(
+            title = "Do'Lovaas' songbook",
+            description = f"*{group_filter}*",
+            color = discord.Color.red()
+        )
+
+        embed.add_field(name=" ", value=" ", inline=False)
+
+        for group, theme, file in filtered_songbook:
+            if group == group_filter:
+                song_title = file.split("\\")[-1].split("(")[0].strip()
+                embed.add_field(name=theme, value=song_title, inline=False)
+
+        embed.add_field(name=" ", value=" ", inline=False)
+        embed.set_footer(text = f"Page {current_page}/{total_pages}")
+
+        return(embed)
 
 
     client.run(TOKEN)
