@@ -49,12 +49,12 @@ def run_bot():
 
     # PLAY
     @client.command(name="play", aliases=["p"])
-    async def play(ctx, user_input: str):
+    async def play(ctx, *, user_input: str):
         global current_audio
 
         vc = ctx.voice_client
         file_path = "";
-        
+
         if not vc:
             await ctx.send("Hey! I'm not there yet!")
         else:
@@ -70,7 +70,7 @@ def run_bot():
                 play_audio(ctx, vc, file_path)
                 await show_player(ctx)
             else:
-                await ctx.send("Sorry, I can't find that in my songbook_data.")
+                await ctx.send("Sorry, I can't find that in my songbook.")
 
     def play_audio(ctx, vc, file_path):
         vc.stop()
