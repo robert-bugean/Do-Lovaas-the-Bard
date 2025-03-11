@@ -54,7 +54,7 @@ def run_bot():
 
         vc = ctx.voice_client
         file_path = "";
-
+        
         if not vc:
             await ctx.send("Hey! I'm not there yet!")
         else:
