@@ -22,6 +22,7 @@ songbook = None
 
 groups = []
 current_page = 0
+total_pages = 0
 
 current_audio = None
 loop = True
@@ -261,24 +262,32 @@ def run_bot():
             super().__init__(timeout=None)
             self.ctx = ctx
 
-        @discord.ui.button(label="Prev.", style=discord.ButtonStyle.secondary)
+        @discord.ui.button(label="Prev.", style=discord.ButtonStyle.secondary, disabled=True)
         async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 embed = create_songbook_embed(current_page - 1)
-                view = SongbookOpenedView(ctx=self.ctx)
+                self.update_buttons()
 
-                await interaction.response.edit_message(embed=embed, view=view)
+                await interaction.response.edit_message(embed=embed, view=self)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
         async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
             if interaction.user == self.ctx.author:
                 embed = create_songbook_embed(current_page + 1)
-                view = SongbookOpenedView(ctx=self.ctx)
-                
-                await interaction.response.edit_message(embed=embed, view=view)
+                self.update_buttons()
+
+                await interaction.response.edit_message(embed=embed, view=self)
+
+        def update_buttons(self):
+            for child in self.children:
+                if isinstance(child, discord.ui.Button):
+                    if child.label == "Prev.":
+                        child.disabled = (current_page == 1)
+                    elif child.label == "Next":
+                        child.disabled = (current_page == total_pages)
 
     def create_songbook_embed(page):
-        global current_page
+        global current_page, total_pages
 
         group_filter = groups[page - 1]
         current_page = page
