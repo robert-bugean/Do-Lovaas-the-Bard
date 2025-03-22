@@ -23,7 +23,6 @@ songbook = None
 # player variables
 current_song = None
 loop = True
-empty_line = False
 
 queue = []
 queue_index = 0
@@ -172,8 +171,6 @@ def run():
 
     # PLAYER VIEW
     async def show_player(ctx):
-        global empty_line
-        
         song_title = current_song.split("\\")[-1].split("(")[0].strip()
         song_category = current_song.split("\\")[-2]
         song_author = "D&D Breakfast Club"
@@ -215,11 +212,7 @@ def run():
         
         view=PlayerView(ctx)
 
-        if empty_line:
-            await ctx.send("** **", embed=embed, view=view, files=files)
-            empty_line = False
-        else:
-            await ctx.send(embed=embed, view=view, files=files)
+        await ctx.send("** **", embed=embed, view=view, files=files)
 
     class PlayerView(discord.ui.View):
         def __init__(self, ctx):
@@ -250,7 +243,7 @@ def run():
                     await resume(self.ctx)
                     button.label = "Pause"
 
-                await interaction.edit_original_response(view=self)
+                await interaction.edit_original_response(content="", view=self)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
         async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -277,7 +270,7 @@ def run():
                 else:
                     button.style = discord.ButtonStyle.secondary
 
-                await interaction.edit_original_response(view=self)
+                await interaction.edit_original_response(content="", view=self)
 
     def get_duration(file_path):
         probe = ffmpeg.probe(file_path)
@@ -311,14 +304,14 @@ def run():
     @client.command(name="songbook", aliases=["s", "b"])
     async def show_songbook(ctx):
         embed = discord.Embed(
-            title = "Do'Lovaas' Songbook",
+            title = "Do’Lovaas’ Songbook",
             description = "This ancient book is filled with enchanted\nmelodies and forgotten secrets, offering every\nbard the perfectsong for any adventure.",
-            color = discord.Color.red()
+            color = discord.Color.blue()
         )
 
         view = SongbookClosedView(ctx)
 
-        await ctx.send(embed=embed, view=view)
+        await ctx.send("** **", embed=embed, view=view)
 
     class SongbookClosedView(discord.ui.View):
         def __init__(self, ctx):
@@ -338,7 +331,7 @@ def run():
                 view = SongbookOpenedView(ctx=self.ctx)
                 
                 # open sonbook
-                await interaction.response.edit_message(embed=embed, view=view)
+                await interaction.response.edit_message(content="", embed=embed, view=view)
                 
                 # show song select
                 await show_song_select(self.ctx)
@@ -354,7 +347,7 @@ def run():
                 embed = create_songbook_embed(current_page - 1)
                 self.update_buttons()
 
-                await interaction.response.edit_message(embed=embed, view=self)
+                await interaction.response.edit_message(content="", embed=embed, view=self)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
         async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -362,7 +355,7 @@ def run():
                 embed = create_songbook_embed(current_page + 1)
                 self.update_buttons()
 
-                await interaction.response.edit_message(embed=embed, view=self)
+                await interaction.response.edit_message(content="", embed=embed, view=self)
 
         def update_buttons(self):
             for child in self.children:
@@ -384,7 +377,7 @@ def run():
         embed = discord.Embed(
             title = "Do'Lovaas' Songbook",
             description = f"*{group_filter}*",
-            color = discord.Color.red()
+            color = discord.Color.blue()
         )
 
         embed.add_field(name=" ", value=" ", inline=False)
@@ -399,46 +392,7 @@ def run():
 
         return(embed)
 
-    # QUEUE VIEW
-    async def show_queue(ctx):
-        embed = discord.Embed(
-            title = "Song Queue",
-            description= "Behold — the ballads I’ll grace this tavern with tonight!",
-            color = discord.Color.red()
-        )
-
-        embed.add_field(name=" ", value=" ", inline=False)
-
-        for song in queue:
-            for theme, path in song.items():
-                song_title = path.split("\\")[-1].split("(")[0].strip()
-
-                if path == current_song:
-                    embed.add_field(name=f"\> {theme}", value=song_title, inline=False)
-                else:
-                    embed.add_field(name=f"**-** {theme}", value=song_title, inline=False)
-
-        view = QueueView(ctx)
-
-        await ctx.send(embed=embed, view=view)
-
-    class QueueView(discord.ui.View):
-        def __init__(self, ctx):
-            super().__init__(timeout=None)
-            self.ctx = ctx
-
-        @discord.ui.button(label="Update", style=discord.ButtonStyle.secondary)
-        async def update(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-
-        @discord.ui.button(label="Clear", style=discord.ButtonStyle.danger)
-        async def clear(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-
     # SONG SELECT VIEW
-    @client.command(name="test")
     async def show_song_select(ctx):
         group_filter = groups[current_page - 1]
         filtered_songbook = [row for row in songbook if row[0] == group_filter]
@@ -446,7 +400,7 @@ def run():
         embed = discord.Embed(
             title="Song Selection",
             description="Speak, brave soul — what song shall stir the fire this eve?",
-            color=discord.Color.red()
+            color=discord.Color.blue()
         )
 
         view = SongSelectView(ctx, filtered_songbook)
@@ -491,15 +445,49 @@ def run():
             await interaction.response.defer()
 
         async def play_callback(self, interaction: discord.Interaction):
-            global empty_line
-            empty_line = True
-            
-            await play_from_songbook(self.ctx, selected_theme)
-
             await interaction.response.defer()
+            await play_from_songbook(self.ctx, selected_theme)
 
         async def queue_callback(self, interaction: discord.Interaction):
             await interaction.response.send_message("You clicked **Next**", ephemeral=True)
+
+    # QUEUE VIEW
+    async def show_queue(ctx):
+        embed = discord.Embed(
+            title = "Song Queue",
+            description= "Behold — the ballads I’ll grace this tavern with tonight!",
+            color = discord.Color.blue()
+        )
+
+        embed.add_field(name=" ", value=" ", inline=False)
+
+        for song in queue:
+            for theme, path in song.items():
+                song_title = path.split("\\")[-1].split("(")[0].strip()
+
+                if path == current_song:
+                    embed.add_field(name=f"\> {theme}", value=song_title, inline=False)
+                else:
+                    embed.add_field(name=f"**-** {theme}", value=song_title, inline=False)
+
+        view = QueueView(ctx)
+
+        await ctx.send("** **", embed=embed, view=view)
+
+    class QueueView(discord.ui.View):
+        def __init__(self, ctx):
+            super().__init__(timeout=None)
+            self.ctx = ctx
+
+        @discord.ui.button(label="Update", style=discord.ButtonStyle.secondary)
+        async def update(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
+
+        @discord.ui.button(label="Clear", style=discord.ButtonStyle.danger)
+        async def clear(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if interaction.user == self.ctx.author:
+                await interaction.response.defer()
 
 
     client.run(TOKEN)
