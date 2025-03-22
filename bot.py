@@ -168,6 +168,25 @@ def run():
     @client.command(name="disconnect", aliases=["d"])
     async def disconnect(ctx):
         await ctx.voice_client.disconnect()
+        clear_variables()
+
+    def clear_variables():
+        global current_song, loop, queue, queue_index, groups, current_page, total_pages, selected_theme
+        
+        # player variables
+        current_song = None
+        loop = True
+
+        queue = []
+        queue_index = 0
+
+        # songbook variables
+        groups = []
+        current_page = 0
+        total_pages = 0
+
+        # song select variables
+        selected_theme = None
 
     # PLAYER VIEW
     async def show_player(ctx):
@@ -375,7 +394,7 @@ def run():
         filtered_songbook = [row for row in songbook if row[0] == group_filter]
                 
         embed = discord.Embed(
-            title = "Do'Lovaas' Songbook",
+            title = "Do’Lovaas’ Songbook",
             description = f"*{group_filter}*",
             color = discord.Color.blue()
         )
@@ -394,65 +413,123 @@ def run():
 
     # SONG SELECT VIEW
     async def show_song_select(ctx):
-        group_filter = groups[current_page - 1]
-        filtered_songbook = [row for row in songbook if row[0] == group_filter]
-
         embed = discord.Embed(
             title="Song Selection",
             description="Speak, brave soul — what song shall stir the fire this eve?",
             color=discord.Color.blue()
         )
 
-        view = SongSelectView(ctx, filtered_songbook)
+        view = SongSelectView(ctx)
 
         await ctx.send("** **", embed=embed, view=view)
 
     class SongSelectView(discord.ui.View):
-        def __init__(self, ctx, filtered_songbook):
+        def __init__(self, ctx):
             super().__init__()
             self.ctx = ctx
 
-            # dropdown
-            options = []
+            # select menu
+            self.select = create_select_menu()
+            self.select.callback = self.select_callback
+            self.add_item(self.select)
 
-            for group, theme, path in filtered_songbook:
-                label = theme
-                options.append(discord.SelectOption(label=label))
+            # play button
+            self.play_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Play", disabled=True)
+            self.play_button.callback = self.play_callback
+            self.add_item(self.play_button)
 
-            select = discord.ui.Select(
-                placeholder="Select a theme...",
-                min_values=1,
-                max_values=1,
-                options=options
-            )
-            select.callback = self.select_callback
-            self.add_item(select)
-
-            # buttons
-            play_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Play")
-            play_button.callback = self.play_callback
-            self.add_item(play_button)
-
-            queue_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Queue")
-            queue_button.callback = self.queue_callback
-            self.add_item(queue_button)
+            # queue button
+            self.queue_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Queue", disabled=True)
+            self.queue_button.callback = self.queue_callback
+            self.add_item(self.queue_button)
 
         # callbacks
         async def select_callback(self, interaction: discord.Interaction):
             global selected_theme
             selected_theme = interaction.data["values"][0]
-            
-            await interaction.response.defer()
+
+            self.remove_item(self.select)
+            self.select = create_select_menu()
+            self.select.callback = self.select_callback
+            self.add_item(self.select)
+
+            self.play_button.disabled = False
+            self.queue_button.disabled = False
+
+            await interaction.response.edit_message(content="", view=self)
 
         async def play_callback(self, interaction: discord.Interaction):
             await interaction.response.defer()
             await play_from_songbook(self.ctx, selected_theme)
 
         async def queue_callback(self, interaction: discord.Interaction):
-            await interaction.response.send_message("You clicked **Next**", ephemeral=True)
+            await interaction.response.defer()
+            await queue_song(self.ctx, user_input=selected_theme)
+
+    def create_select_menu():
+        options = []
+
+        group_filter = groups[current_page - 1]
+        filtered_songbook = [row for row in songbook if row[0] == group_filter]
+
+        for group, theme, path in filtered_songbook:
+            if theme == selected_theme:
+                select_option = discord.SelectOption(label=theme, default=True)
+            else:
+                select_option = discord.SelectOption(label=theme, default=False)
+
+            options.append(select_option)
+        
+        select = discord.ui.Select(
+            placeholder="Select a theme...",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+        return(select)
 
     # QUEUE VIEW
     async def show_queue(ctx):
+        embed = create_queue_embed()
+        view = QueueView(ctx)
+
+        await ctx.send("** **", embed=embed, view=view)
+
+    class QueueView(discord.ui.View):
+        def __init__(self, ctx):
+            super().__init__(timeout=None)
+            self.ctx = ctx
+
+            # update button
+            self.update_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Update")
+            self.update_button.callback = self.update_callback
+            self.add_item(self.update_button)
+
+            # clear button
+            self.clear_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Clear")
+            self.clear_button.callback = self.clear_callback
+            self.add_item(self.clear_button)
+
+        # callbacks
+        async def update_callback(self, interaction: discord.Interaction):
+            await interaction.response.edit_message(content="", embed=create_queue_embed(), view=self)
+
+        async def clear_callback(self, interaction: discord.Interaction):
+            global queue
+            
+            match self.clear_button.style:
+                case discord.ButtonStyle.secondary:
+                    self.clear_button.style = discord.ButtonStyle.danger
+                    
+                    await interaction.response.edit_message(content="", view=self)
+                case discord.ButtonStyle.danger:
+                    self.clear_button.style = discord.ButtonStyle.secondary
+                    queue = []
+
+                    await interaction.response.edit_message(content="", embed=create_queue_embed(), view=self)
+
+    def create_queue_embed():
         embed = discord.Embed(
             title = "Song Queue",
             description= "Behold — the ballads I’ll grace this tavern with tonight!",
@@ -470,24 +547,6 @@ def run():
                 else:
                     embed.add_field(name=f"**-** {theme}", value=song_title, inline=False)
 
-        view = QueueView(ctx)
-
-        await ctx.send("** **", embed=embed, view=view)
-
-    class QueueView(discord.ui.View):
-        def __init__(self, ctx):
-            super().__init__(timeout=None)
-            self.ctx = ctx
-
-        @discord.ui.button(label="Update", style=discord.ButtonStyle.secondary)
-        async def update(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-
-        @discord.ui.button(label="Clear", style=discord.ButtonStyle.danger)
-        async def clear(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                await interaction.response.defer()
-
+        return(embed)
 
     client.run(TOKEN)
