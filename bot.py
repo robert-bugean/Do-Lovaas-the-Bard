@@ -13,8 +13,8 @@ intents.message_content = True
 
 client = commands.Bot(command_prefix=".", intents=intents)
 
-attachments_folder = f"{os.getcwd()}\\Attachments\\"
 songs_folder = f"{os.getcwd()}\\Songs\\"
+attachments_folder = f"{os.getcwd()}\\Attachments\\"
 
 songbook_csv = f"{os.getcwd()}\\Songbook.csv"
 songbook_data = pandas.read_csv(songbook_csv, delimiter=';')
@@ -34,6 +34,12 @@ total_pages = 0
 
 # song select variables
 selected_theme = None
+
+# message IDs
+player_id = 0
+songbook_id = 0
+song_select_id = 0
+queue_id = 0
 
 # —————————————————————————————————————— #
 
@@ -188,8 +194,16 @@ def run():
         # song select variables
         selected_theme = None
 
+        # message IDs
+        player_id = 0
+        songbook_id = 0
+        song_select_id = 0
+        queue_id = 0
+
     # PLAYER VIEW
     async def show_player(ctx):
+        global player_id
+        
         song_title = current_song.split("\\")[-1].split("(")[0].strip()
         song_category = current_song.split("\\")[-2]
         song_author = "D&D Breakfast Club"
@@ -198,7 +212,7 @@ def run():
         icon_path = f"{attachments_folder}\\icon.png"
         thumbnail_path = get_thumbnail(current_song)
 
-        # player attachments
+        # attachments
         files = []
 
         with open(icon_path, "rb") as icon_file:
@@ -210,16 +224,16 @@ def run():
                 thumbnail = discord.File(thumbnail_file, filename="cover.jpg")
                 files.append(thumbnail)
 
-        # player structure
+        # embed
         embed = discord.Embed(
             title = song_title,
-            description = f"*{song_category}*",
-            color = discord.Color.red()
+            description = song_category,
+            color = discord.Color.red(),
         )
 
         embed.set_author(
             name = "Now playing...",
-            icon_url = "attachment://icon.png"
+            icon_url = "attachment://icon.png" 
         )
 
         embed.set_thumbnail(url="attachment://cover.jpg")
@@ -229,55 +243,75 @@ def run():
         embed.add_field(name=" ", value=" ", inline=True)
         embed.add_field(name="Duration", value=song_duration, inline=True)
         
+        # view
         view=PlayerView(ctx)
 
-        await ctx.send("** **", embed=embed, view=view, files=files)
+        message = await ctx.send("** **", embed=embed, view=view, files=files)
+        player_id = message.id
 
     class PlayerView(discord.ui.View):
         def __init__(self, ctx):
             super().__init__(timeout=None)
             self.ctx = ctx
 
-        @discord.ui.button(label="Prev.", style=discord.ButtonStyle.secondary)
-        async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            # previous button
+            self.previous_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Prev.", disabled=True)
+            self.previous_button.callback = self.previous_callback
+            self.add_item(self.previous_button)
+
+            # pause/resume button
+            self.pause_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Pause")
+            self.pause_button.callback = self.pause_callback
+            self.add_item(self.pause_button)
+
+            # next button
+            self.next_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Next", disabled=True)
+            self.next_button.callback = self.next_callback
+            self.add_item(self.next_button)
+
+            # loop button
+            self.loop_button = discord.ui.Button(style=discord.ButtonStyle.success, label="Loop")
+            self.loop_button.callback = self.loop_callback
+            self.add_item(self.loop_button)
+
+        # callbacks
+        async def previous_callback(self, interaction: discord.Interaction):
             global queue, queue_index
-            
+                
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
                 
                 queue_index -= 1
                 previous_song = list(queue[queue_index].values())[0]
 
-                play_audio(self.ctx, previous_song)                
+                play_audio(self.ctx, previous_song)    
 
-        @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary)
-        async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async def pause_callback(self, interaction: discord.Interaction):
             if interaction.user == self.ctx.author:
-                await interaction.response.defer()
+                match self.pause_button.label:
+                    case "Pause":
+                        await pause(self.ctx)
+                        self.pause_button.label = "Resume"
+                        
+                        await interaction.response.edit_message(content="", view=self)
+                    case "Resume":
+                        await resume(self.ctx)
+                        self.pause_button.label = "Pause"
+                        
+                        await interaction.response.edit_message(content="", view=self)
 
-                if button.label == "Pause":
-                    await pause(self.ctx)
-                    button.label = "Resume"
-                else:
-                    await resume(self.ctx)
-                    button.label = "Pause"
-
-                await interaction.edit_original_response(content="", view=self)
-
-        @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
-        async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        async def next_callback(self, interaction: discord.Interaction):
             global queue, queue_index
-            
+                
             if interaction.user == self.ctx.author:
                 await interaction.response.defer()
                 
                 queue_index += 1
                 next_song = list(queue[queue_index].values())[0]
 
-                play_audio(self.ctx, next_song)  
-
-        @discord.ui.button(label="Loop", style=discord.ButtonStyle.success)
-        async def loop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                play_audio(self.ctx, next_song)
+            
+        async def loop_callback(self, interaction: discord.Interaction):
             global loop
             
             if interaction.user == self.ctx.author:
@@ -285,9 +319,9 @@ def run():
                 await toggle_loop(self.ctx)
 
                 if loop:
-                    button.style = discord.ButtonStyle.success
+                    self.loop_button.style = discord.ButtonStyle.success
                 else:
-                    button.style = discord.ButtonStyle.secondary
+                    self.loop_button.style = discord.ButtonStyle.secondary
 
                 await interaction.edit_original_response(content="", view=self)
 
@@ -322,6 +356,8 @@ def run():
     # SONGBOOK VIEW
     @client.command(name="songbook", aliases=["s", "b"])
     async def show_songbook(ctx):
+        global songbook_id
+        
         embed = discord.Embed(
             title = "Do’Lovaas’ Songbook",
             description = "This ancient book is filled with enchanted\nmelodies and forgotten secrets, offering every\nbard the perfectsong for any adventure.",
@@ -330,18 +366,24 @@ def run():
 
         view = SongbookClosedView(ctx)
 
-        await ctx.send("** **", embed=embed, view=view)
+        message = await ctx.send("** **", embed=embed, view=view)
+        songbook_id = message.id
 
     class SongbookClosedView(discord.ui.View):
         def __init__(self, ctx):
             super().__init__(timeout=None)
             self.ctx = ctx
 
-        @discord.ui.button(label="Open", style=discord.ButtonStyle.secondary)
-        async def open(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if interaction.user == self.ctx.author:
-                global groups
+            # open button
+            self.open_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Open")
+            self.open_button.callback = self.open_callback
+            self.add_item(self.open_button)
 
+        # callbacks
+        async def open_callback(self, interaction: discord.Interaction):
+            global groups
+
+            if interaction.user == self.ctx.author:
                 for group, theme, path in songbook:
                     if group not in groups:
                         groups.append(group)
@@ -350,39 +392,55 @@ def run():
                 view = SongbookOpenedView(ctx=self.ctx)
                 
                 # open sonbook
-                await interaction.response.edit_message(content="", embed=embed, view=view)
+                message = await self.ctx.channel.fetch_message(songbook_id)
+                await message.edit(content="", embed=embed, view=view)
                 
                 # show song select
                 await show_song_select(self.ctx)
+
+                await interaction.response.defer()
 
     class SongbookOpenedView(discord.ui.View):
         def __init__(self, ctx):
             super().__init__(timeout=None)
             self.ctx = ctx
 
-        @discord.ui.button(label="Prev.", style=discord.ButtonStyle.secondary, disabled=True)
-        async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+            # previous button
+            self.previous_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Prev.", disabled=True)
+            self.previous_button.callback = self.previous_callback
+            self.add_item(self.previous_button)
+
+            # next button
+            self.next_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Next")
+            self.next_button.callback = self.next_callback
+            self.add_item(self.next_button)
+
+        # callbacks
+        async def previous_callback(self, interaction: discord.Interaction):
             if interaction.user == self.ctx.author:
                 embed = create_songbook_embed(current_page - 1)
-                self.update_buttons()
 
-                await interaction.response.edit_message(content="", embed=embed, view=self)
+                if current_page == 1:
+                    self.previous_button.disabled = True
+                    self.next_button.disabled = False
+                else:
+                    self.previous_button.disabled = False
+                    self.next_button.disabled = True
 
-        @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
-        async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+                await interaction.response.edit_message(content="", embed=embed, view=self)  
+
+        async def next_callback(self, interaction: discord.Interaction):
             if interaction.user == self.ctx.author:
                 embed = create_songbook_embed(current_page + 1)
-                self.update_buttons()
+                
+                if current_page == total_pages:
+                    self.next_button.disabled = True
+                    self.previous_button.disabled = False
+                else:
+                    self.next_button.disabled = False
+                    self.previous_button.disabled = True
 
                 await interaction.response.edit_message(content="", embed=embed, view=self)
-
-        def update_buttons(self):
-            for child in self.children:
-                if isinstance(child, discord.ui.Button):
-                    if child.label == "Prev.":
-                        child.disabled = (current_page == 1)
-                    elif child.label == "Next":
-                        child.disabled = (current_page == total_pages)
 
     def create_songbook_embed(page):
         global current_page, total_pages
@@ -421,7 +479,7 @@ def run():
 
         view = SongSelectView(ctx)
 
-        await ctx.send("** **", embed=embed, view=view)
+        song_select_id = await ctx.send("** **", embed=embed, view=view)
 
     class SongSelectView(discord.ui.View):
         def __init__(self, ctx):
@@ -494,7 +552,7 @@ def run():
         embed = create_queue_embed()
         view = QueueView(ctx)
 
-        await ctx.send("** **", embed=embed, view=view)
+        queue_id = await ctx.send("** **", embed=embed, view=view)
 
     class QueueView(discord.ui.View):
         def __init__(self, ctx):
