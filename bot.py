@@ -20,12 +20,13 @@ songbook_csv = f"{os.getcwd()}\\Songbook.csv"
 songbook_data = pandas.read_csv(songbook_csv, delimiter=';')
 songbook = None
 
-# player variables
-current_song = None
-loop = True
+blank_line = "** **"
 
+# player variables
 queue = []
 queue_index = 0
+current_song = None
+loop = True
 
 # songbook variables
 groups = []
@@ -40,6 +41,7 @@ player_id = 0
 songbook_id = 0
 song_select_id = 0
 queue_id = 0
+queue_message_id = 0
 
 # —————————————————————————————————————— #
 
@@ -72,23 +74,13 @@ def run():
                 await play_from_queue(ctx)
             else:
                 await play_from_songbook(ctx, user_input)
-            
-    async def play_from_queue(ctx):
-        global queue, queue_index
-
-        if queue != []:
-            if not ctx.voice_client.is_playing():
-                song_path = list(queue[queue_index].values())[0]
-
-                play_audio(ctx, song_path)
-                await show_player(ctx)
-            else:
-                await ctx.send("I'm already playing this beautiful melody... don't bother me!")
-
-        else:
-            await ctx.send("I got nothing to play.")
-
+      
     async def play_from_songbook(ctx, user_input):
+        global playing_from_songbook, playing_from_queue
+
+        play_from_songbook = True
+        playing_from_queue = False
+        
         song_path = '';
 
         # find song to play
@@ -102,14 +94,32 @@ def run():
             await show_player(ctx)
         else:
             await ctx.send("Sorry, I can't find that in my songbook.")
+      
+    async def play_from_queue(ctx):
+        global queue, queue_index
+                
+        if queue != []:
+            if not ctx.voice_client.is_playing():
+                song_path = list(queue[queue_index].values())[0]
+
+                play_audio(ctx, song_path)
+
+                await show_player(ctx)
+                await show_queue(ctx)
+            else:
+                await ctx.send(f"{blank_line}\nI’m already playing this beautiful melody... don’t bother me!")
+        else:
+            await ctx.send(f"{blank_line}\nI got nothing to play.")
+
 
     def play_audio(ctx, song_path):
         global current_song
 
         if song_path != current_song:
             current_song = song_path
-                
-        ctx.voice_client.stop()
+        
+        if ctx.voice_client.is_playing():
+            ctx.voice_client.stop()
 
         ctx.voice_client.play(
             discord.FFmpegPCMAudio(song_path),
@@ -120,7 +130,8 @@ def run():
         global queue, queue_index
 
         if loop:
-            play_audio(ctx, current_song)
+            if not ctx.voice_client.is_playing():
+                play_audio(ctx, current_song)
         else:
             queue_index += 1
             next_song = list(queue[queue_index].values())[0]
@@ -148,7 +159,7 @@ def run():
     # QUEUE
     @client.command(name="queue", aliases=["q"])
     async def queue_song(ctx, *, user_input: str = None):
-        global queue, queue_index
+        global queue, queue_index, queue_message_id
 
         song_theme = ''
         song_path = ''
@@ -166,9 +177,14 @@ def run():
             if os.path.exists(song_path):
                 queue.append({song_theme:song_path})
 
-                await ctx.send("Another verse joins the sacred scroll of melodies, soon to echo through the realms.")
+                if len(queue) == 1:
+                    message = await ctx.send(f"{blank_line}\nAnother verse joins the sacred scroll of melodies ({len(queue)}), soon to echo through the realms.")
+                    queue_message_id = message.id
+                else:
+                    message = await ctx.channel.fetch_message(queue_message_id)
+                    await message.edit(content=f"{blank_line}\nAnother verse joins the sacred scroll of melodies ({len(queue)}), soon to echo through the realms.")
             else:
-                await ctx.send("Sorry, I can't find that in my songbook.")
+                await ctx.send("Sorry, I can’t find that in my songbook.")
 
     # DISCONNECT
     @client.command(name="disconnect", aliases=["d"])
@@ -178,6 +194,7 @@ def run():
 
     def clear_variables():
         global current_song, loop, queue, queue_index, groups, current_page, total_pages, selected_theme
+        global player_id, songbook_id, song_select_id, queue_id
         
         # player variables
         current_song = None
@@ -205,7 +222,7 @@ def run():
         global player_id
         
         song_title = current_song.split("\\")[-1].split("(")[0].strip()
-        song_category = current_song.split("\\")[-2]
+        song_theme = get_theme(current_song)
         song_author = "D&D Breakfast Club"
         song_duration = get_duration(current_song)
 
@@ -227,7 +244,7 @@ def run():
         # embed
         embed = discord.Embed(
             title = song_title,
-            description = song_category,
+            description = f"*{song_theme}*",
             color = discord.Color.red(),
         )
 
@@ -246,7 +263,7 @@ def run():
         # view
         view=PlayerView(ctx)
 
-        message = await ctx.send("** **", embed=embed, view=view, files=files)
+        message = await ctx.send(blank_line, embed=embed, view=view, files=files)
         player_id = message.id
 
     class PlayerView(discord.ui.View):
@@ -265,7 +282,9 @@ def run():
             self.add_item(self.pause_button)
 
             # next button
-            self.next_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Next", disabled=True)
+            self.next_button = discord.ui.Button(style=discord.ButtonStyle.secondary, label="Next")
+            if len(queue) == 0: 
+                self.next_button.disabled = True
             self.next_button.callback = self.next_callback
             self.add_item(self.next_button)
 
@@ -284,7 +303,18 @@ def run():
                 queue_index -= 1
                 previous_song = list(queue[queue_index].values())[0]
 
-                play_audio(self.ctx, previous_song)    
+                play_audio(self.ctx, previous_song)
+
+                # update player
+                if queue_index == 0:
+                    self.next_button.disabled = False
+                    self.previous_button.disabled = True
+
+                message = await self.ctx.channel.fetch_message(player_id)
+                await message.edit(content="", view=self)
+
+                # update queue
+                await show_queue(self.ctx, True)
 
         async def pause_callback(self, interaction: discord.Interaction):
             if interaction.user == self.ctx.author:
@@ -310,6 +340,17 @@ def run():
                 next_song = list(queue[queue_index].values())[0]
 
                 play_audio(self.ctx, next_song)
+
+                # update player
+                if (queue_index + 1) == len(queue):
+                    self.next_button.disabled = True
+                    self.previous_button.disabled = False
+
+                message = await self.ctx.channel.fetch_message(player_id)
+                await message.edit(content="", view=self)
+
+                # update queue
+                await show_queue(self.ctx, True)
             
         async def loop_callback(self, interaction: discord.Interaction):
             global loop
@@ -324,6 +365,11 @@ def run():
                     self.loop_button.style = discord.ButtonStyle.secondary
 
                 await interaction.edit_original_response(content="", view=self)
+
+    def get_theme(file_path):
+        for group, theme, path in songbook:
+            if path == file_path:
+                return theme
 
     def get_duration(file_path):
         probe = ffmpeg.probe(file_path)
@@ -366,7 +412,7 @@ def run():
 
         view = SongbookClosedView(ctx)
 
-        message = await ctx.send("** **", embed=embed, view=view)
+        message = await ctx.send(blank_line, embed=embed, view=view)
         songbook_id = message.id
 
     class SongbookClosedView(discord.ui.View):
@@ -427,7 +473,9 @@ def run():
                     self.previous_button.disabled = False
                     self.next_button.disabled = True
 
-                await interaction.response.edit_message(content="", embed=embed, view=self)  
+                await interaction.response.edit_message(content="", embed=embed, view=self)
+
+                await show_song_select(self.ctx)
 
         async def next_callback(self, interaction: discord.Interaction):
             if interaction.user == self.ctx.author:
@@ -441,6 +489,8 @@ def run():
                     self.previous_button.disabled = True
 
                 await interaction.response.edit_message(content="", embed=embed, view=self)
+
+                await show_song_select(self.ctx)
 
     def create_songbook_embed(page):
         global current_page, total_pages
@@ -471,6 +521,10 @@ def run():
 
     # SONG SELECT VIEW
     async def show_song_select(ctx):
+        global song_select_id, selected_theme
+        
+        selected_theme = None
+
         embed = discord.Embed(
             title="Song Selection",
             description="Speak, brave soul — what song shall stir the fire this eve?",
@@ -479,7 +533,13 @@ def run():
 
         view = SongSelectView(ctx)
 
-        song_select_id = await ctx.send("** **", embed=embed, view=view)
+        # send/edit message
+        if song_select_id == 0:
+            message = await ctx.send(blank_line, embed=embed, view=view)
+            song_select_id = message.id
+        else:
+            message = await ctx.channel.fetch_message(song_select_id)
+            await message.edit(content="", embed=embed, view=view)
 
     class SongSelectView(discord.ui.View):
         def __init__(self, ctx):
@@ -517,8 +577,27 @@ def run():
             await interaction.response.edit_message(content="", view=self)
 
         async def play_callback(self, interaction: discord.Interaction):
-            await interaction.response.defer()
-            await play_from_songbook(self.ctx, selected_theme)
+            global selected_theme
+            
+            # clear selected theme
+            if self.ctx.voice_client.is_playing():
+                await interaction.response.defer()
+            else:
+                song_theme = selected_theme
+                selected_theme = None            
+
+                self.remove_item(self.select)
+                self.select = create_select_menu()
+                self.select.callback = self.select_callback
+                self.add_item(self.select)
+
+                await interaction.response.edit_message(content="", view=self)
+
+            # play song
+            if len(queue) == 0:
+                await play_from_songbook(self.ctx, song_theme)
+            else:
+                await play_from_queue(self.ctx)
 
         async def queue_callback(self, interaction: discord.Interaction):
             await interaction.response.defer()
@@ -548,11 +627,18 @@ def run():
         return(select)
 
     # QUEUE VIEW
-    async def show_queue(ctx):
+    async def show_queue(ctx, update=False):
+        global queue_id
+        
         embed = create_queue_embed()
         view = QueueView(ctx)
 
-        queue_id = await ctx.send("** **", embed=embed, view=view)
+        if update == False:
+            message = await ctx.send(blank_line, embed=embed, view=view)
+            queue_id = message.id
+        else:
+            message = await ctx.channel.fetch_message(queue_id)
+            await message.edit(content="", embed=embed, view=view)
 
     class QueueView(discord.ui.View):
         def __init__(self, ctx):
